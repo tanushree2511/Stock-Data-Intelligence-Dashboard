@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stock Intelligence Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --blue:      #58a6ff;
+      --purple:    #bc8cff;
+      --yellow:    #d29922;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; height: 100vh; overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 260px; min-width: 260px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    #sidebar h2 {
+      padding: 18px 16px 12px;
+      font-size: 15px; font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      color: var(--blue);
+      letter-spacing: 0.5px;
+    }
+    #company-list { overflow-y: auto; flex: 1; }
+    .company-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .company-item:hover, .company-item.active { background: #1f2937; }
+    .company-item .sym  { font-size: 13px; font-weight: 700; color: var(--blue); }
+    .company-item .name { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .company-item .price-row {
+      display: flex; justify-content: space-between; margin-top: 6px;
+    }
+    .company-item .price { font-size: 13px; font-weight: 600; }
+    .company-item .change { font-size: 12px; font-weight: 600; }
+    .up   { color: var(--green); }
+    .down { color: var(--red);   }
+    .flat { color: var(--muted); }
+
+    /* ── Main Panel ── */
+    #main {
+      flex: 1; display: flex; flex-direction: column;
+      overflow-y: auto; padding: 24px;
+      gap: 20px;
+    }
+
+    /* ── Header ── */
+    #header { display: flex; justify-content: space-between; align-items: center; }
+    #stock-title h1 { font-size: 22px; font-weight: 700; }
+    #stock-title p  { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    #controls { display: flex; gap: 10px; }
+    button, select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #1f2937; }
+    button.active-btn { background: var(--blue); color: #000; border-color: var(--blue); }
+
+    /* ── KPI Cards ── */
+    #kpi-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .kpi-card {
+      flex: 1; min-width: 130px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .kpi-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi-card .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .kpi-card .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Charts ── */
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .chart-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--muted); }
+    .chart-card canvas { max-height: 240px; }
+
+    /* ── Compare Section ── */
+    #compare-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    #compare-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--muted); }
+    #compare-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    #compare-controls select, #compare-controls button { flex-shrink: 0; }
+    #correlation-badge {
+      display: inline-block; padding: 4px 10px; border-radius: 20px;
+      font-size: 12px; font-weight: 600; background: #1f2937; border: 1px solid var(--border);
+    }
+
+    /* ── Movers ── */
+    #movers-row { display: flex; gap: 12px; }
+    .movers-card {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .movers-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+    .mover-item { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+    .mover-item:last-child { border-bottom: none; }
+
+    /* ── Loader ── */
+    #loader {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      align-items: center; justify-content: center;
+      z-index: 999;
+    }
+    #loader.show { display: flex; }
+    #loader span { font-size: 15px; color: var(--blue); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside id="sidebar">
+  <h2>📈 NSE Stocks</h2>
+  <div id="company-list">Loading…</div>
+</aside>
+
+<!-- ── Main ── -->
+<main id="main">
+  <div id="header">
+    <div id="stock-title">
+      <h1 id="title-sym">Select a stock</h1>
+      <p  id="title-name">Click a company from the left panel</p>
+    </div>
+    <div id="controls">
+      <button onclick="setDays(30)"  class="active-btn" id="btn-30">30D</button>
+      <button onclick="setDays(90)"  id="btn-90">90D</button>
+      <button onclick="setDays(180)" id="btn-180">180D</button>
+      <button onclick="setDays(365)" id="btn-365">1Y</button>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div id="kpi-row">
+    <div class="kpi-card"><div class="label">Latest Close</div><div class="value" id="kpi-close">—</div><div class="sub">INR</div></div>
+    <div class="kpi-card"><div class="label">Daily Return</div><div class="value" id="kpi-return">—</div><div class="sub">vs open</div></div>
+    <div class="kpi-card"><div class="label">52W High</div><div class="value" id="kpi-high">—</div><div class="sub">closing</div></div>
+    <div class="kpi-card"><div class="label">52W Low</div><div class="value" id="kpi-low">—</div><div class="sub">closing</div></div>
+    <div class="kpi-card"><div class="label">Volatility</div><div class="value" id="kpi-vol">—</div><div class="sub">annualised</div></div>
+    <div class="kpi-card"><div class="label">Sentiment</div><div class="value" id="kpi-sent">—</div><div class="sub" id="kpi-sent-score"></div></div>
+  </div>
+
+  <!-- Price + MA chart -->
+  <div class="chart-card">
+    <h3>Close Price &amp; 7-Day Moving Average</h3>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <!-- Volume + Return charts side by side -->
+  <div style="display:flex; gap:12px;">
+    <div class="chart-card" style="flex:1">
+      <h3>Daily Return (%)</h3>
+      <canvas id="returnChart"></canvas>
+    </div>
+    <div class="chart-card" style="flex:1">
+      <h3>Volatility (7D Annualised)</h3>
+      <canvas id="volChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ML Prediction -->
+  <div class="chart-card">
+    <h3>📊 Price Prediction (Next 7 Days — Linear Regression)</h3>
+    <canvas id="predictChart"></canvas>
+  </div>
+
+  <!-- Top Movers -->
+  <div id="movers-row">
+    <div class="movers-card">
+      <h3 style="color:var(--green)">🔺 Top Gainers</h3>
+      <div id="gainers-list"></div>
+    </div>
+    <div class="movers-card">
+      <h3 style="color:var(--red)">🔻 Top Losers</h3>
+      <div id="losers-list"></div>
+    </div>
+  </div>
+
+  <!-- Compare Section -->
+  <div id="compare-section">
+    <h3>⚖️ Compare Two Stocks</h3>
+    <div id="compare-controls">
+      <select id="cmp1"></select>
+      <select id="cmp2"></select>
+      <button onclick="loadComparison()">Compare</button>
+      <span id="correlation-badge"></span>
+    </div>
+    <canvas id="compareChart" style="max-height:220px"></canvas>
+  </div>
+</main>
+
+<!-- Loader -->
+<div id="loader"><span>Loading…</span></div>
+
+<script>
+const API = "";
+let currentSymbol = null;
+let currentDays   = 30;
+let charts        = {};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function show(id, html) { document.getElementById(id).innerHTML = html; }
+function loader(on)     { document.getElementById("loader").classList.toggle("show", on); }
+
+function colorClass(val) {
+  return val > 0 ? "up" : val < 0 ? "down" : "flat";
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadSidebar();
+  await loadMovers();
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+
+async function loadSidebar() {
+  const res  = await fetch(`${API}/companies`);
+  const data = await res.json();
+  const companies = data.companies;
+
+  // Populate compare dropdowns
+  ["cmp1","cmp2"].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = companies.map((c,i) =>
+      `<option value="${c.symbol}" ${id==="cmp2"&&i===1?"selected":""}>${c.symbol}</option>`
+    ).join("");
+  });
+
+  const list = document.getElementById("company-list");
+  list.innerHTML = companies.map(c => {
+    const cls = colorClass(c.daily_return_pct);
+    const arrow = c.daily_return_pct > 0 ? "▲" : c.daily_return_pct < 0 ? "▼" : "●";
+    return `
+      <div class="company-item" onclick="loadStock('${c.symbol}')" id="item-${c.symbol.replace(".","_")}">
+        <div class="sym">${c.symbol}</div>
+        <div class="name">${c.name}</div>
+        <div class="price-row">
+          <span class="price">₹${c.latest_close.toLocaleString()}</span>
+          <span class="change ${cls}">${arrow} ${c.daily_return_pct}%</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+// ── Load Stock ────────────────────────────────────────────────────────────────
+
+async function loadStock(symbol) {
+  currentSymbol = symbol;
+  loader(true);
+
+  // Highlight sidebar
+  document.querySelectorAll(".company-item").forEach(el => el.classList.remove("active"));
+  const itemId = symbol.replace(".","_");
+  document.getElementById(`item-${itemId}`)?.classList.add("active");
+
+  const [dataRes, sumRes, predRes] = await Promise.all([
+    fetch(`${API}/data/${symbol}?days=${currentDays}`),
+    fetch(`${API}/summary/${symbol}`),
+    fetch(`${API}/predict/${symbol}?days=7`),
+  ]);
+
+  const data    = await dataRes.json();
+  const summary = await sumRes.json();
+  const pred    = await predRes.json();
+
+  loader(false);
+  renderHeader(symbol, summary);
+  renderKPIs(summary);
+  renderPriceChart(data.data);
+  renderReturnChart(data.data);
+  renderVolatilityChart(data.data);
+  renderPredictChart(pred);
+}
+
+function setDays(days) {
+  currentDays = days;
+  ["30","90","180","365"].forEach(d =>
+    document.getElementById(`btn-${d}`).classList.toggle("active-btn", String(days)===d)
+  );
+  if (currentSymbol) loadStock(currentSymbol);
+}
+
+// ── KPIs ─────────────────────────────────────────────────────────────────────
+
+function renderHeader(symbol, s) {
+  document.getElementById("title-sym").textContent  = symbol;
+  document.getElementById("title-name").textContent = s.symbol || "";
+}
+
+function renderKPIs(s) {
+  const ret = s.daily_return;
+  const cls = colorClass(ret);
+  document.getElementById("kpi-close").textContent  = `₹${s.latest_close?.toLocaleString()}`;
+  document.getElementById("kpi-return").innerHTML   = `<span class="${cls}">${ret > 0 ? "+" : ""}${ret}%</span>`;
+  document.getElementById("kpi-high").textContent   = `₹${s.week52_high?.toLocaleString()}`;
+  document.getElementById("kpi-low").textContent    = `₹${s.week52_low?.toLocaleString()}`;
+  document.getElementById("kpi-vol").textContent    = (s.volatility * 100)?.toFixed(1) + "%";
+
+  const sentCls = s.sentiment_label === "Bullish" ? "up" : s.sentiment_label === "Bearish" ? "down" : "flat";
+  document.getElementById("kpi-sent").innerHTML     = `<span class="${sentCls}">${s.sentiment_label}</span>`;
+  document.getElementById("kpi-sent-score").textContent = `score: ${s.sentiment_index}`;
+}
+
+// ── Price Chart ───────────────────────────────────────────────────────────────
+
+function renderPriceChart(data) {
+  destroyChart("priceChart");
+  const ctx    = document.getElementById("priceChart").getContext("2d");
+  const labels = data.map(d => d.date);
+
+  charts.priceChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Close",
+          data: data.map(d => d.close),
+          borderColor: "#58a6ff", backgroundColor: "rgba(88,166,255,0.08)",
+          borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3,
+        },
+        {
+          label: "MA 7",
+          data: data.map(d => d.ma_7),
+          borderColor: "#d29922", borderDash: [5,3],
+          borderWidth: 1.5, pointRadius: 0, fill: false,
+        },
+      ],
+    },
+    options: chartOptions("₹"),
+  });
+}
+
+function renderReturnChart(data) {
+  destroyChart("returnChart");
+  const ctx = document.getElementById("returnChart").getContext("2d");
+
+  charts.returnChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: data.map(d => d.date),
+      datasets: [{
+        label: "Daily Return %",
+        data:  data.map(d => d.daily_return),
+        backgroundColor: data.map(d => d.daily_return >= 0
+          ? "rgba(63,185,80,0.7)" : "rgba(248,81,73,0.7)"),
+      }],
+    },
+    options: chartOptions("%"),
+  });
+}
+
+function renderVolatilityChart(data) {
+  destroyChart("volChart");
+  const ctx = document.getElementById("volChart").getContext("2d");
+
+  charts.volChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: data.map(d => d.date),
+      datasets: [{
+        label: "Volatility",
+        data:  data.map(d => d.volatility_7d),
+        borderColor: "#bc8cff", backgroundColor: "rgba(188,140,255,0.08)",
+        borderWidth: 2, pointRadius: 0, fill: true,
+      }],
+    },
+    options: chartOptions(""),
+  });
+}
+
+function renderPredictChart(pred) {
+  destroyChart("predictChart");
+  const ctx = document.getElementById("predictChart").getContext("2d");
+
+  const actualDates  = pred.actuals.map(d => d.date);
+  const actualPrices = pred.actuals.map(d => d.close);
+  const predDates    = pred.predictions.map(d => d.date);
+  const predPrices   = pred.predictions.map(d => d.predicted_close);
+
+  // Bridge: connect last actual to first prediction
+  const bridgePrice  = actualPrices[actualPrices.length - 1];
+  const allDates     = [...actualDates, ...predDates];
+  const actualFull   = [...actualPrices, ...Array(predDates.length).fill(null)];
+  const predictFull  = [...Array(actualDates.length - 1).fill(null), bridgePrice, ...predPrices];
+
+  charts.predictChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: allDates,
+      datasets: [
+        {
+          label: "Actual Close",
+          data:  actualFull,
+          borderColor: "#58a6ff", borderWidth: 2,
+          pointRadius: 0, fill: false,
+        },
+        {
+          label: "Predicted",
+          data:  predictFull,
+          borderColor: "#3fb950", borderDash: [6,4],
+          borderWidth: 2, pointRadius: 3, fill: false,
+          pointBackgroundColor: "#3fb950",
+        },
+      ],
+    },
+    options: chartOptions("₹"),
+  });
+}
+
+// ── Compare ───────────────────────────────────────────────────────────────────
+
+async function loadComparison() {
+  const s1  = document.getElementById("cmp1").value;
+  const s2  = document.getElementById("cmp2").value;
+  if (s1 === s2) { alert("Please select two different stocks."); return; }
+
+  loader(true);
+  const res  = await fetch(`${API}/compare?symbol1=${s1}&symbol2=${s2}&days=60`);
+  const data = await res.json();
+  loader(false);
+
+  const badge = document.getElementById("correlation-badge");
+  const corr  = data.correlation;
+  badge.textContent = `Correlation: ${corr} (${data.correlation_label})`;
+  badge.style.color = corr > 0.5 ? "var(--green)" : corr < 0 ? "var(--red)" : "var(--yellow)";
+
+  destroyChart("compareChart");
+  const ctx    = document.getElementById("compareChart").getContext("2d");
+  const stocks = data.stocks;
+  const syms   = Object.keys(stocks);
+
+  charts.compareChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: stocks[syms[0]].dates,
+      datasets: syms.map((sym, i) => ({
+        label: stocks[sym].name,
+        data:  stocks[sym].normalised,
+        borderColor: i === 0 ? "#58a6ff" : "#3fb950",
+        borderWidth: 2, pointRadius: 0, fill: false,
+      })),
+    },
+    options: chartOptions("(base 100)"),
+  });
+}
+
+// ── Movers ────────────────────────────────────────────────────────────────────
+
+async function loadMovers() {
+  const res  = await fetch(`${API}/movers`);
+  const data = await res.json();
+
+  const fmt = (list) => list.map(m =>
+    `<div class="mover-item">
+      <span>${m.Symbol}</span>
+      <span class="${colorClass(m.daily_return)}">${m.daily_return > 0 ? "+" : ""}${m.daily_return}%</span>
+    </div>`
+  ).join("");
+
+  show("gainers-list", fmt(data.gainers));
+  show("losers-list",  fmt(data.losers));
+}
+
+// ── Chart Options (shared) ───────────────────────────────────────────────────
+
+function chartOptions(yLabel) {
+  return {
+    responsive: true,
+    maintainAspectRatio: true,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { labels: { color: "#8b949e", font: { size: 11 } } },
+      tooltip: { backgroundColor: "#161b22", borderColor: "#30363d", borderWidth: 1 },
+    },
+    scales: {
+      x: {
+        ticks: { color: "#8b949e", maxTicksLimit: 8, font: { size: 10 } },
+        grid:  { color: "#21262d" },
+      },
+      y: {
+        ticks: { color: "#8b949e", font: { size: 10 },
+                 callback: v => `${yLabel}${Number(v).toLocaleString()}` },
+        grid: { color: "#21262d" },
+      },
+    },
+  };
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
