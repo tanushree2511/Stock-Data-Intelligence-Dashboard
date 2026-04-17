@@ -2,7 +2,8 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 yfinance==0.2.51
 curl_cffi>=0.7.0
-pandas==2.1.4
+Cython==3.0.10
+pandas==2.2.3
 requests==2.31.0
 lxml==4.9.3
 numpy==1.26.4
